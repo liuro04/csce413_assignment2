@@ -2,4 +2,10 @@
 
 
 def create_logger():
-    raise NotImplementedError("Implement logging setup for your honeypot")
+    os.makedirs("/app/logs", exist_ok=True)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        handlers=[logging.FileHandler(LOG_PATH), logging.StreamHandler()],
+    )
+    return logging.getLogger("Honeypot")

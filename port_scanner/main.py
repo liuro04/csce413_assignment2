@@ -19,7 +19,9 @@ TODO for students:
 
 import socket
 import sys
-
+import argparse
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 def scan_port(target, port, timeout=1.0):
     """
@@ -33,20 +35,39 @@ def scan_port(target, port, timeout=1.0):
     Returns:
         bool: True if port is open, False otherwise
     """
+
+    banner = "No banner"
     try:
         # TODO: Create a socket
         # TODO: Set timeout
         # TODO: Try to connect to target:port
         # TODO: Close the socket
         # TODO: Return True if connection successful
-
-        pass  # Remove this and implement
+        
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(timeout)
+            result = s.connect_ex((target, port))
+            if result == 0:
+                try:
+                    # Attempt to receive the banner (first 1024 bytes)
+                    # We send a small newline to nudge some services to respond
+                    s.sendall(b'\r\n') 
+                    banner_bytes = s.recv(1024)
+                    if banner_bytes:
+                        banner = banner_bytes.decode(errors='ignore').strip()
+                except:
+                    # If we can't get a banner, we still know the port is open
+                    banner = "Service detected (no banner)"
+                
+                return True, banner
+            return False, None
+        # pass  # Remove this and implement
 
     except (socket.timeout, ConnectionRefusedError, OSError):
-        return False
+        return False, None
 
 
-def scan_range(target, start_port, end_port):
+def scan_range(target, start_port, end_port, threads = 100):
     """
     Scan a range of ports on the target host
 
@@ -67,13 +88,39 @@ def scan_range(target, start_port, end_port):
     # Hint: Loop through port range and call scan_port()
     # Hint: Consider using threading for better performance
 
-    for port in range(start_port, end_port + 1):
-        # TODO: Scan this port
-        # TODO: If open, add to open_ports list
-        # TODO: Print progress (optional)
-        pass  # Remove this and implement
+    # for port in range(start_port, end_port + 1):
+    #     # TODO: Scan this port
+    #     # TODO: If open, add to open_ports list
+    #     # TODO: Print progress (optional)
+    #     is_open, banner = scan_port(target, port)
+        
+    #     if is_open:
+    #         open_ports.append((port, banner))
+    #         print(f"[+] Found open port: {port} | Service: {banner}")
 
-    return open_ports
+    # return open_ports
+
+    # Using ThreadPoolExecutor for concurrent scanning
+    with ThreadPoolExecutor(max_workers=threads) as executor:
+        # Create a dictionary mapping the future object to the port number
+        future_to_port = {executor.submit(scan_port, target, port): port for port in range(start_port, end_port + 1)}
+        
+        try:
+            for future in as_completed(future_to_port):
+                port = future_to_port[future]
+                try:
+                    is_open, banner = future.result()
+                    if is_open:
+                        open_ports.append((port, banner))
+                        print(f"[+] Found open port: {port} | Service: {banner}")
+                except Exception as e:
+                    print(f" [!] Error scanning port {port}: {e}")
+        except KeyboardInterrupt:
+            print("\n[!] User interrupted scan. Shutting down threads...")
+            executor.shutdown(wait=False)
+            return open_ports
+
+    return sorted(open_ports) # Sort so the output is in order
 
 
 def main():
@@ -84,23 +131,41 @@ def main():
     # TODO: Display results
 
     # Example usage (you should improve this):
-    if len(sys.argv) < 2:
-        print("Usage: python3 port_scanner_template.py <target>")
-        print("Example: python3 port_scanner_template.py 172.20.0.10")
+    # 1. Accept target IP/hostname and port range as arguments (Requirement 1.1.1)
+    parser = argparse.ArgumentParser(description="Professional TCP Port Scanner")
+    parser.add_argument("--target", required=True, help="Target IP address or hostname")
+    parser.add_argument("--ports", default="1-1024", help="Port range to scan (e.g., 1-10000)")
+    parser.add_argument("--threads", type=int, default=100, help="Number of concurrent threads")
+    
+    args = parser.parse_args()
+
+    # 2. Validate inputs and handle errors gracefully (Requirement 1.1.4)
+    try:
+        if '-' in args.ports:
+            start_port, end_port = map(int, args.ports.split('-'))
+        else:
+            start_port = end_port = int(args.ports)
+        
+        if not (0 <= start_port <= 65535 and 0 <= end_port <= 65535):
+            raise ValueError("Ports must be between 0 and 65535")
+    except ValueError as e:
+        print(f"Error: Invalid port range. {e}")
         sys.exit(1)
 
-    target = sys.argv[1]
-    start_port = 1
-    end_port = 1024  # Scan first 1024 ports by default
+    # 3. Timing (Requirement 1.1.3)
+    start_time = time.time()
 
-    print(f"[*] Starting port scan on {target}")
+    print(f"[*] Starting port scan on {args.target}")
 
-    open_ports = scan_range(target, start_port, end_port)
+    results = scan_range(args.target, start_port, end_port, args.threads)
+    end_time = time.time()
+    duration = end_time - start_time
 
-    print(f"\n[+] Scan complete!")
-    print(f"[+] Found {len(open_ports)} open ports:")
-    for port in open_ports:
-        print(f"    Port {port}: open")
+    # 4. Display results showing state and timing (Requirement 1.1.3)
+    print(f"\n[+] Scan complete in {duration:.2f} seconds")
+    print(f"[+] Found {len(results)} open ports:")
+    for port, banner in results:
+        print(f"    Port {port}: OPEN | Banner: {banner}")
 
 
 if __name__ == "__main__":

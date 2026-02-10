@@ -4,7 +4,8 @@ WORKDIR /app
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends iptables iproute2 \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install scapy
 
 COPY knock_server.py knock_client.py ./
 
